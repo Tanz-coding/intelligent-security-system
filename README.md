@@ -2,7 +2,7 @@
 # Deep Leakage from Gradients (DLG) 复现实验与代码修改说明
 
 ## 0.更多说明
-如需查看multi信息，请点击：[README_multi](muti/README_multi.md)
+如需查看multi信息，请点击：[README_multi](multi/README_multi.md)
 
 本仓库基于 mit-han-lab/dlg（NeurIPS 2019）进行复现与工程化改造，面向 Windows/PowerShell 环境提供一键运行与更丰富的实验配置（数据集选择、批量样本、TV 正则、指标导出与结果保存）。
 
