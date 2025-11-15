@@ -1,0 +1,64 @@
+# ---- Python 编译缓存 ----
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+ENV/
+*.env
+
+# ---- 日志 & 运行中间文件 ----
+*.log
+logs/
+logs_files/
+
+# ---- Jupyter Notebook 检查点 ----
+.ipynb_checkpoints/
+
+
+
+# 如果想把某些小型配置或示例数据提交，可单独取消注释：
+# !data/README.md
+# !data/example_*.pt
+
+# ---- 训练生成的模型 / 检查点 ----
+checkpoint/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# ---- 训练/实验输出图片 ----
+recon*.png
+target*.png
+history.png
+*.jpg
+*.jpeg
+*.gif
+
+# ---- VS Code / JetBrains 等编辑器配置 ----
+.vscode/
+.idea/
+
+# ---- OS 级别文件 ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- 其他常见临时文件 ----
+*.tmp
+*.swp
+*.swo
+
+# 忽略数据集和大文件
+dlg-master/data/
+dlg-master/dlg-master/data/
+*.tar
+*.tar.gz
+*.zip
+*.pt
+*.pth
+*.ckpt

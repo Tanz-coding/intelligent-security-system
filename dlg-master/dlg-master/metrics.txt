@@ -1,0 +1,5 @@
+dataset=cifar100
+model=lenet
+iterations=1200
+MSE=nan
+PSNR=nan dB
