@@ -41,7 +41,6 @@
 
 ## 已保留的复现凭证
 
-- `edgecase_backdoors-master/edgecase_backdoors-master/MultiMetricDefense_复刻报告.md`：详细实验记录与分析。
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/emnist_lenet_multimetric_frac0.80.csv`
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/cifar10_vgg9_multimetric_frac0.20.csv`
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/plots/emnist_accuracy.png`
