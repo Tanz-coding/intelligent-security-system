@@ -1,6 +1,7 @@
 # MultiMetricDefense Reproduction Workspace
 
 以下内容聚焦于 MultiMetricDefense，帮助在提交代码时同时保留必要的实验凭证。
+上游代码：https://github.com/SanaAwan5/edgecase_backdoors.git
 
 ## 快速开始
 
@@ -41,7 +42,6 @@
 
 ## 已保留的复现凭证
 
-- `edgecase_backdoors-master/edgecase_backdoors-master/MultiMetricDefense_复刻报告.md`：详细实验记录与分析。
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/emnist_lenet_multimetric_frac0.80.csv`
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/cifar10_vgg9_multimetric_frac0.20.csv`
 - `edgecase_backdoors-master/edgecase_backdoors-master/results/plots/emnist_accuracy.png`
