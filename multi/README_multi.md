@@ -1,6 +1,7 @@
 # MultiMetricDefense Reproduction Workspace
 
 以下内容聚焦于 MultiMetricDefense，帮助在提交代码时同时保留必要的实验凭证。
+上游代码：https://github.com/SanaAwan5/edgecase_backdoors.git
 
 ## 快速开始
 
