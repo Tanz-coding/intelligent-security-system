@@ -38,7 +38,7 @@ class Net(nn.Module):
         return output
 
 
-def get_results_filename(poison_type, attack_method, model_replacement, project_frequency, defense_method, norm_bound, prox_attack, fixed_pool=False, model_arch="vgg9"):
+def get_results_filename(poison_type, attack_method, model_replacement, project_frequency, defense_method, norm_bound, prox_attack, fixed_pool=False, model_arch="vgg9", multi_metric_frac=None, multi_metric_eps=None):
     filename = "{}_{}_{}".format(poison_type, model_arch, attack_method)
     if fixed_pool:
         filename += "_fixed_pool" 
@@ -58,6 +58,12 @@ def get_results_filename(poison_type, attack_method, model_replacement, project_
         filename += "_{}_m_{}".format(defense_method, norm_bound)
     elif defense_method in ("krum", "multi-krum", "rfa"):
         filename += "_{}".format(defense_method)
+    elif defense_method == "multi-metric":
+        filename += "_multi-metric"
+        if multi_metric_frac is not None:
+            filename += "_p_{:.2f}".format(multi_metric_frac)
+        if multi_metric_eps is not None:
+            filename += "_eps_{:.0e}".format(multi_metric_eps)
                
     filename += "_acc_results.csv"
 
@@ -78,6 +84,23 @@ def calc_norm_diff(gs_model, vanilla_model, epoch, fl_round, mode="bad"):
         logger.info("===> ND `|w_avg-w_g|` in local epoch: {} | FL round: {} |, is {}".format(epoch, fl_round, norm_diff))
 
     return norm_diff
+
+
+def _clone_params(model):
+    return parameters_to_vector(model.parameters()).detach().clone()
+
+
+def _reset_model(target_model, reference_model):
+    vector_to_parameters(_clone_params(reference_model), target_model.parameters())
+
+
+def ensure_finite_weights(model, reference_model, label="client"):
+    flat_params = parameters_to_vector(model.parameters())
+    if torch.isfinite(flat_params).all():
+        return False
+    logger.warning("Detected non-finite weights in %s; resetting to reference model", label)
+    _reset_model(model, reference_model)
+    return True
 
 
 def fed_avg_aggregator(net_list, net_freq, device, model="lenet"):
@@ -338,6 +361,10 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
         self.prox_attack = arguments['prox_attack']
         self.attack_case = arguments['attack_case']
         self.stddev = arguments['stddev']
+        self.multi_metric_frac = arguments.get('multi_metric_frac', 0.5)
+        self.multi_metric_eps = arguments.get('multi_metric_eps', 1e-6)
+        self.multi_metric_frac = arguments.get('multi_metric_frac', 0.5)
+        self.multi_metric_eps = arguments.get('multi_metric_eps', 1e-6)
 
         logger.info("Posion type! {}".format(self.poison_type))
 
@@ -374,6 +401,8 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
             self._defender = RFA()
         elif arguments["defense_technique"] == "foolsgold":
             self._defender = FoolsGold()
+        elif arguments["defense_technique"] == "multi-metric":
+            self._defender = MultiMetricDefense(retain_ratio=self.multi_metric_frac, whitening_epsilon=self.multi_metric_eps)
         else:
             NotImplementedError("Unsupported defense method !")
 
@@ -389,6 +418,7 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
         for flr in range(1, self.fl_round+1):
             logger.info("##### attack fl rounds: {}".format(self.attacking_fl_rounds))
             g_user_indices = []
+            num_dps_this_round = []
 
             if self.defense_technique == "norm-clipping-adaptive":
                 # experimental
@@ -405,6 +435,7 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
 
                 net_freq = [self.num_dps_poisoned_dataset/ total_num_dps_per_round] + [num_data_points[i]/total_num_dps_per_round for i in range(self.part_nets_per_round-1)]
                 logger.info("Net freq: {}, FL round: {} with adversary".format(net_freq, flr)) 
+                num_dps_this_round = [self.num_dps_poisoned_dataset] + num_data_points
                 #pdb.set_trace()
 
                 # we need to reconstruct the net list at the beginning
@@ -488,6 +519,8 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
                             v = torch.nn.utils.parameters_to_vector(net.parameters())
                             logger.info("Attacker after scaling : Norm = {}".format(torch.norm(v)))
 
+                        ensure_finite_weights(net, self.net_avg, label="attacker client")
+
                         # at here we can check the distance between w_bad and w_g i.e. `\|w_bad - w_g\|_2`
                         # we can print the norm diff out for debugging
                         adv_norm_diff = calc_norm_diff(gs_model=net, vanilla_model=self.net_avg, epoch=e, fl_round=flr, mode="bad")
@@ -501,6 +534,7 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
                            train(net, self.device, train_dl_local, optimizer, e, log_interval=self.log_interval, criterion=self.criterion)                
                            # at here we can check the distance between w_normal and w_g i.e. `\|w_bad - w_g\|_2`
                         # we can print the norm diff out for debugging
+                        ensure_finite_weights(net, self.net_avg, label="client {}".format(net_idx))
                         honest_norm_diff = calc_norm_diff(gs_model=net, vanilla_model=self.net_avg, epoch=e, fl_round=flr, mode="normal")
                         
                         if self.defense_technique == "norm-clipping-adaptive":
@@ -514,6 +548,7 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
 
                 net_freq = [num_data_points[i]/total_num_dps_per_round for i in range(self.part_nets_per_round)]
                 logger.info("Net freq: {}, FL round: {} without adversary".format(net_freq, flr))
+                num_dps_this_round = num_data_points
 
                 # we need to reconstruct the net list at the beginning
                 net_list = [copy.deepcopy(self.net_avg) for _ in range(self.part_nets_per_round)]
@@ -549,6 +584,7 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
                     for e in range(1, self.local_training_period+1):
                         train(net, self.device, train_dl_local, optimizer, e, log_interval=self.log_interval, criterion=self.criterion)
 
+                    ensure_finite_weights(net, self.net_avg, label="client {}".format(net_idx))
                     honest_norm_diff = calc_norm_diff(gs_model=net, vanilla_model=self.net_avg, epoch=e, fl_round=flr, mode="normal")
 
                     if self.defense_technique == "norm-clipping-adaptive":
@@ -581,12 +617,12 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
                                         global_model=self.net_avg,)
             elif self.defense_technique == "krum":
                 net_list, net_freq = self._defender.exec(client_models=net_list, 
-                                                        num_dps=[self.num_dps_poisoned_dataset]+num_data_points,
+                                                        num_dps=num_dps_this_round,
                                                         g_user_indices=g_user_indices,
                                                         device=self.device)
             elif self.defense_technique == "multi-krum":
                 net_list, net_freq = self._defender.exec(client_models=net_list, 
-                                                        num_dps=[self.num_dps_poisoned_dataset]+num_data_points,
+                                                        num_dps=num_dps_this_round,
                                                         g_user_indices=g_user_indices,
                                                         device=self.device)
             elif self.defense_technique == "rfa":
@@ -598,8 +634,16 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
                                                         device=self.device)
             elif self.defense_technique == "foolsgold":
                 net_list, net_freq = self._defender.exec(client_models=net_list, net_freq = net_freq,names = selected_node_indices,device=self.device)
+            elif self.defense_technique == "multi-metric":
+                net_list, net_freq = self._defender.exec(client_models=net_list,
+                                                        global_model=self.net_avg,
+                                                        num_dps=num_dps_this_round,
+                                                        device=self.device)
             else:
                 NotImplementedError("Unsupported defense method !")
+
+            for net_idx, net in enumerate(net_list):
+                ensure_finite_weights(net, self.net_avg, label="client {} before aggregation".format(net_idx))
 
             # after local training periods
             self.net_avg = fed_avg_aggregator(net_list, net_freq, device=self.device, model=self.model)
@@ -638,7 +682,8 @@ class FrequencyFederatedLearningTrainer(FederatedLearningTrainer):
             df = pd.concat([df1, df])
 
         results_filename = get_results_filename(self.poison_type, self.attack_method, self.model_replacement, self.project_frequency,
-                self.defense_technique, self.norm_bound, self.prox_attack, False, self.model)
+            self.defense_technique, self.norm_bound, self.prox_attack, False, self.model,
+            multi_metric_frac=self.multi_metric_frac, multi_metric_eps=self.multi_metric_eps)
 
         df.to_csv(results_filename, index=False)
         logger.info("Wrote accuracy results to: {}".format(results_filename))
@@ -723,6 +768,8 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
             self._defender = RFA()
         elif arguments["defense_technique"] == "foolsgold":
             self._defender = FoolsGold()
+        elif arguments["defense_technique"] == "multi-metric":
+            self._defender = MultiMetricDefense(retain_ratio=self.multi_metric_frac, whitening_epsilon=self.multi_metric_eps)
         else:
             NotImplementedError("Unsupported defense method !")
 
@@ -742,6 +789,7 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
             # in this current version, we sample `part_nets_per_round` per FL round since we assume attacker will always participates
             selected_node_indices = np.random.choice(self.num_nets, size=self.part_nets_per_round, replace=False)
             arguments["selected_node_indices"] = selected_node_indices
+            g_user_indices = list(selected_node_indices)
 
             selected_attackers = [idx for idx in selected_node_indices if idx in self.attacker_pool]
             arguments["selected_attackers"] = selected_attackers
@@ -759,6 +807,7 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
             total_num_dps_per_round = sum(num_data_points)
             net_freq = [num_data_points[i]/total_num_dps_per_round for i in range(self.part_nets_per_round)]
             logger.info("Net freq: {}, FL round: {} with adversary".format(net_freq, flr)) 
+            num_dps_this_round = num_data_points
 
             # we need to reconstruct the net list at the beginning
             net_list = [copy.deepcopy(self.net_avg) for _ in range(self.part_nets_per_round)]
@@ -898,12 +947,12 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
                                         global_model=self.net_avg,)
             elif self.defense_technique == "krum":
                 net_list, net_freq = self._defender.exec(client_models=net_list, 
-                                                        num_dps=[self.num_dps_poisoned_dataset]+num_data_points,
+                                                        num_dps=num_dps_this_round,
                                                         g_user_indices=g_user_indices,
                                                         device=self.device)
             elif self.defense_technique == "multi-krum":
                 net_list, net_freq = self._defender.exec(client_models=net_list, 
-                                                        num_dps=[self.num_dps_poisoned_dataset]+num_data_points,
+                                                        num_dps=num_dps_this_round,
                                                         g_user_indices=g_user_indices,
                                                         device=self.device)
             elif self.defense_technique == "rfa":
@@ -915,6 +964,11 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
                                                         device=self.device)
             elif self.defense_technique == "foolsgold":
                 net_list, net_freq = self._defender.exec(client_models=net_list,names = selected_node_indices,device=self.device)
+            elif self.defense_technique == "multi-metric":
+                net_list, net_freq = self._defender.exec(client_models=net_list,
+                                                        global_model=self.net_avg,
+                                                        num_dps=num_dps_this_round,
+                                                        device=self.device)
             else:
                 NotImplementedError("Unsupported defense method !")
 
@@ -960,6 +1014,7 @@ class FixedPoolFederatedLearningTrainer(FederatedLearningTrainer):
             df = pd.concat([df1, df])
 
         results_filename = get_results_filename(self.poison_type, self.attack_method, self.model_replacement, self.project_frequency,
-                self.defense_technique, self.norm_bound, self.prox_attack, fixed_pool=True, model_arch=self.model)
+            self.defense_technique, self.norm_bound, self.prox_attack, fixed_pool=True, model_arch=self.model,
+            multi_metric_frac=self.multi_metric_frac, multi_metric_eps=self.multi_metric_eps)
         df.to_csv(results_filename, index=False)
         logger.info("Wrote accuracy results to: {}".format(results_filename))

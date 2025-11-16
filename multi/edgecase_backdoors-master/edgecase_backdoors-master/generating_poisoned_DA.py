@@ -165,10 +165,19 @@ def create_ardis_test_dataset(emnist_dataset):
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Create poisoned EMNIST datasets")
+    parser.add_argument('--fraction', type=float, default=0.15,
+                        help='Fraction of ARDIS/Fashion samples to append (default: 0.15)')
+    parser.add_argument('--num-gdps-sampled', type=int, default=100,
+                        help='Number of EMNIST samples kept before appending poison (default: 100)')
+    parser.add_argument('--poison', choices=['ardis', 'fashion'], default='ardis',
+                        help='Which source dataset to use for poisoning (default: ardis)')
+    args = parser.parse_args()
+
     ### Hyper-params:
-    fraction=0.15 #0.0334 #0.01 #0.1 #0.0168 #10
-    num_gdps_sampled = 100
-    poison = 'ardis'
+    fraction = args.fraction
+    num_gdps_sampled = args.num_gdps_sampled
+    poison = args.poison
 
     # prepare fashionMNIST dataset
     fashion_mnist_train_dataset = datasets.FashionMNIST('./data', train=True, download=True,

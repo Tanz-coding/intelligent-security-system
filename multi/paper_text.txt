@@ -1,0 +1,1110 @@
+Multi-metrics adaptively identifies backdoors in Federated learning
+Siquan Huang1
+cssiquanhuang@mail.scut.edu.cnYijiang Li2
+yli556@jhu.eduChong Chen1
+cschenchong@mail.scut.edu.cn
+Leyu Shi1
+csshileyu@mail.scut.edu.cnYing Gao1*
+gaoying@scut.edu.cn
+1School of Computer Science and Engineering, South China University of Technology
+2Johns Hopkins University
+Abstract
+The decentralized and privacy-preserving nature of fed-
+erated learning (FL) makes it vulnerable to backdoor at-
+tacks aiming to manipulate the behavior of the resulting
+model on specific adversary-chosen inputs. However, most
+existing defenses based on statistical differences take effect
+only against specific attacks, especially when the malicious
+gradients are similar to benign ones or the data are highly
+non-independent and identically distributed (non-IID). In
+this paper, we revisit the distance-based defense methods
+and discover that i) Euclidean distance becomes meaning-
+less in high dimensions and ii) malicious gradients with di-
+verse characteristics cannot be identified by a single met-
+ric. To this end, we present a simple yet effective defense
+strategy with multi-metrics and dynamic weighting to iden-
+tify backdoors adaptively. Furthermore, our novel defense
+has no reliance on predefined assumptions over attack set-
+tings or data distributions and little impact on benign per-
+formance. To evaluate the effectiveness of our approach, we
+conduct comprehensive experiments on different datasets
+under various attack settings, where our method achieves
+the best defensive performance. For instance, we achieve
+the lowest backdoor accuracy of 3.06% under the most dif-
+ficult Edge-case PGD, showing significant superiority over
+previous defenses. The experiments also demonstrate that
+our method can be well-adapted to a wide range of non-IID
+degrees without sacrificing the benign performance.
+1. Introduction
+Federated learning (FL) [26, 35] is a distributed machine
+learning paradigm that enables multiple participants to train
+a quality model collaboratively without exchanging their lo-
+cal data. During each round of training, the central server
+*Corresponding Authordistributes the global model to a subset of clients. Each
+client updates the model with the local data and submits
+the parameters to the server for aggregation. By training an
+efficient and quality model in a decentralized manner with-
+out sacrificing the privacy of participants, FL alleviates the
+possible conflict between technological developments and
+regulations for data privacy protection( e.g., General Data
+Protection Regulation). FL has already been applied and
+achieved success in multiple fields, such as image process-
+ing [32], word prediction [36], medical imaging [30], and
+edge computing [56, 51].
+However, FL is vulnerable to backdoors manipulat-
+ing the model towards the targeted behavior on specific
+adversary-chosen inputs [24, 4, 6, 47, 50, 11, 33, 39, 19, 31].
+The backdoor attack is more difficult to be detected com-
+pared with the untargeted poisoning attacks [6, 7, 33, 11, 19]
+since it does not affect the regular function of the model and
+its gradient is more similar to benign ones [47, 38]. Multi-
+ple defenses have been proposed to improve the robustness
+of FL, such as the scoring-based methods [17, 8, 53, 41, 10,
+55, 16, 29, 2, 20], which leverage a particular metric to dis-
+tinguish malicious gradients from the benign ones. Despite
+its effectiveness against some backdoors, researchers dis-
+covered that well-designed attacks (termed stealthy back-
+doors ) whose gradients are indistinguishable from benign
+ones (through scaling [4, 47] or trigger split [50]) could eas-
+ily bypass these defenses. Differential privacy (DP) -based
+method [46, 40, 38, 49] builds upon the observation that the
+DP method [14], traditionally used against DP attacks, is
+also effective against backdoors. By adding Gaussian noise
+to the global model, these methods can dilute the impact
+of potentially poisoned model updates. Surprisingly, DP-
+based methods show great ability in resisting stealthy back-
+doors (e.g., Edge-case PGD [47]). Despite its ability to re-
+sist the stealthy backdoors , the noises added by the DP sig-
+nificantly decrease the overall performance and the conver-
+gence speed. In comparison, the distance-based method less
+This ICCV paper is the Open Access version, provided by the Computer Vision Foundation.
+Except for this watermark, it is identical to the accepted version;
+the final published version of the proceedings is available on IEEE Xplore.
+4652
+
+impacts the global model by aggregating only the benign
+gradients. Consequently, a natural question arises: can we
+defend the stealthy backdoors without sacrificing the per-
+formance of the FL model? To accomplish this, we turn to
+the distance-based methods that don’t sacrifice the benign
+performance and promote the research question: how can
+we successfully leverage distance metrics to discriminate
+hostile updates from benign ones?
+To this end, we revisit the distance-based defense and
+discover two limitations: 1. Euclidean distance ( i.e.,L2
+distance) suffers from the curse of dimensionality. Param-
+eters of Neural Networks (NNs) can be viewed as high-
+dimensional vectors, and Euclidean distance generally fails
+to discriminate between malicious and benign gradients in
+high-dimensional space. 2. Single metric takes effect only
+against particular attacks with detailed assumptions regard-
+ing the malicious gradients. For instance, cosine distance
+detects malicious gradients with sizeable angular deviations
+while euclidean distance detects malicious gradients with a
+large L2norm scaled by the attacker to impact the global
+models. Moreover, backdoor attacks are conducted with
+different data and scenarios, resulting in malicious gradi-
+ents with various characteristics that a single metric cannot
+handle ( i.e., both gradients with a large norm and gradients
+with sizeable angular deviations exist in one round of aggre-
+gation). What’s worse is that the defender has no knowledge
+regarding the attacker and the underlying data distributions
+due to privacy requirements by FL, which makes detecting
+with a single metric even more difficult.
+To address the above two problems, we first introduce
+the Manhattan distance, which we theoretically prove more
+meaningful in high dimensional space than Euclidean dis-
+tance. Empirically, with the Manhattan distance, our pro-
+posed distance-based defense shows remarkable perfor-
+mance against the stealthy backdoors . To cope with gra-
+dients with various properties, we leverage multiple met-
+rics cooperatively to identify the malicious gradients. We
+demonstrate in Section 5.4 and Figure 7 that malicious gra-
+dients of some characteristics are better identified by spe-
+cific metrics, which justify our motivation. To handle the
+different attacks and environments, we further propose to
+apply a whitening transformation and generate dynamic
+weights to handle the non-IID distribution of participants
+and different scales brought by the different distances. Fi-
+nally, we compute the score for each submitted gradient and
+aggregate only the benign ones based on the scoring. Exten-
+sive experiments illustrate that our defense maintains a high
+model performance and robustness simultaneously, which
+has never been achieved before. At a high level, we sum-
+marize the main contributions of this paper as follows:
+• We present a novel defense with multi-metrics to adap-
+tively identify backdoors, which is applicable in a
+generic adversary model without predefined assump-tions over the attack strategy or data distribution.
+• We show that by introducing the Manhattan distance,
+our defense alleviates the “meaningfulness” problem
+of Euclidean distance in high dimensions. By utilizing
+multiple metrics with dynamic weighting, our defense
+can resist backdoor attacks under a wide range of at-
+tack settings and data distributions.
+• We empirically evaluate our method on various
+datasets and different attack settings. By showing that
+our defense maintains both high robustness and benign
+performance under the stealthy backdoors that previ-
+ously have not been successfully defended, we demon-
+strate the effectiveness of our approach.
+2. Related work
+Backdoor Attacks on Federated Learning. FL enables
+multiple clients collaboratively train a model without local
+data exchange. In an FL system, clients update the local
+model with private data and submit the parameters to the
+server for aggregation. Given a total of Nparticipants, each
+withn(i)samples. In each round t, the server randomly
+selects Kclients to participate. FedAvg [35] is a widely-
+adopted FL algorithm, which can be formulated as:
+wt=wt−1+η·PK
+i=1n(i)∆w(i)
+tPK
+i=1n(i)(1)
+where wtis the global model parameters at round t,∆w(i)
+t
+is the local model updates from the client iin round t, and
+ηis the global model learning rate.
+Empirical studies from Bagdasaryan et al. [4] demon-
+strate that FedAvg [35] is vulnerable to backdoor attacks
+since FL has no authority over local data and the training
+process due to privacy concerns. The model replacement
+attack [4] successfully injects a backdoor into the global
+model by the single-shot attack. Some well-designed at-
+tacks strategically target the weakness of the defenses, such
+as the PGD attack [47] scaling and projecting the gradients,
+or the DBA attack [50] splitting the triggers before upload-
+ing them. Moreover, the Edge-case PGD attack [47] mod-
+ifies the poisoned data and model. Undoubtedly, these at-
+tacks present a tremendous challenge to the security of the
+FL system.
+Defense Against the Backdoor Attack. Various meth-
+ods to defend against backdoor attacks improve the robust-
+ness and security of FL. In general, we can divide these
+methods into two categories. The first type of defense
+strategies tries to distinguish malicious gradients from be-
+nign ones by classifying or scoring with the assumption that
+benign and malicious gradients show distinct differences in
+the vector space [17, 8, 53, 41, 10, 55, 16, 29, 2, 20]. Krum
+4653
+
+and Multi-Krum [8] select the gradient with the smallest
+Euclidean norm from the others to aggregate and update
+the global model at each round. Foolsgold [17] assumes
+that the gradients of attackers are always consistent and dis-
+tinguishes them by the Cosine similarity between historical
+updates. Trimmed Mean and Median [53] remove a frac-
+tion of the gradients with maximum and minimum values
+and then take the median value on each dimension of the
+remaining gradients as the parameters of the global model.
+RFA [41] leverages the geometric median of the gradients
+to keep the aggregated model close to the benign model and
+away from the backdoor one. The strength lies in that, if
+successful, the gradients of attackers are excluded from the
+aggregation process, which solves the core and fundamental
+problem of defending the attack.
+However, the above methods take effect only under par-
+ticular attacks since they make detailed assumptions about
+the attack or the data distributions. Foolsgold [17] as-
+sumes the gradients of attackers are consistent while be-
+nign gradients from Non-IID data differ. Krum [8] assumes
+that the data of benign clients is similar under IID settings
+and excludes abnormal malicious ones. These predefined
+assumptions limit the applicability of these defenses un-
+der various attacks and data distributions and can be eas-
+ily bypassed by elaborate attacks. For example, PGD [47]
+breaks any Euclidean-based defense ( e.g. Krum and Multi-
+Krum) by scaling the norm to a small value. Other meth-
+ods, such as FLTrust [10], use a root dataset and aggregate
+only those gradients with large cosine similarities with the
+root dataset. FedInv [55] inverts the gradients into dummy
+datasets and then identifies the malicious gradient by com-
+paring these dummy datasets. These methods are limited
+as well. FLTrust cannot defend against backdoors crafted
+on edge cases( e.g. Edge-case PGD) since they appear less
+often and are probably not in the root dataset. Inverting the
+gradients into dummy datasets violates the privacy require-
+ment of FL. Essentially, this method can be characterized as
+another type of attack [3, 21].
+The other category of defenses [46, 40, 38, 49] builds
+upon the observation that the differential privacy (DP)
+method [14], traditionally used against DP attacks is also
+effective against backdoor attacks. Earlier studies [4] have
+demonstrated that clipping and adding noise (typically used
+in DP) can resist backdoor attacks without any specific as-
+sumptions over the data distribution. Following these find-
+ings, Weak-DP [46] clips the norm and adds the Gaus-
+sian noise to the global model for mitigating the backdoors.
+RLR [40] and Flame [38] apply the clustering methods be-
+fore the DP process. However, the noise added significantly
+decreases the performance and the convergence speed of
+the FL system. In a nutshell, using DP sacrifices regular
+functionality for robustness. Despite its deficiency, the DP-
+based method has been the only method that has taken effectagainst stealthy backdoors [38].
+3. Methodology
+We first provide the threat model in Section 3.1 and then
+detail our design of the proposed defense method. Our goal
+is to design an efficient defense with the following prop-
+erties: (1) Effectiveness: To prevent the adversary from
+achieving its hostile purpose, we aim to design a defense
+that identifies as many malicious updates as possible to
+eliminate its impact on the global model. (2) Performance:
+Benign performance of the global model must be preserved
+to maintain its utility. (3) Independence: The defense must
+be applicable to generic adversary models under different
+data distributions and attack strategies. Our defense consists
+of three major components: defining and calculating the
+gradient feature, computing the dynamic weight and score
+for each update, and aggregating the benign gradients with
+the score computed, as shown in Figure 1 and Algorithm 1.
+3.1. Threat Model
+Adversarial goals . Adversary aims to alter the behavior
+of the model on some specific examples with no negative
+impact on the benign performance. We consider the ad-
+versary effective if this is met. In addition, the adversary
+will make their attack as covert as possible, e.g., by scaling
+down. Formally, adversary Amanipulates the global model
+Gto the poisoned model G′. For any inputs x, we have the
+outputs below:
+G′(x) =l′̸=G(x)∀x∈DA
+G(x)∀x /∈DA(2)
+where DAdenotes the poisoned dataset belonging to adver-
+saryA, and l′denotes the specific label modified by adver-
+saryAof the input x.
+Adversarial capabilities . This paper assumes the white-
+box setting with full knowledge of aggregation operations,
+including potential defenses. Also, adversaries can freely
+alter the parameters in the local training, ensure participa-
+tion in each round and compromise less than 50% of total
+FL clients. However, the adversary cannot control any pro-
+cess or parameter executed in the aggregator.
+3.2. Feature of gradient
+The essential logic of distance-based defense involves
+defining some indicative metric that can well discriminate
+the malicious gradients from the benign ones and removes
+the hostile updates from the aggregation. Consequently, the
+core problem becomes how to define a metric that identifies
+the characteristics of hostile gradients. For instance, NDC
+[46] utilizes the length of the gradient ( i.e. Euclidean dis-
+tance) while FoolGold [17] leverages Cosine similarity to
+measure the difference between updates.
+4654
+
+label:plane
+label:plane
+label:trucklabel:truck
+score:1 1.9
+score:13.2
+score:10.5
+score:39.7
+Server Side
+3
+Define the Multi-metrics as feature of gradients 1 2Dynamic weight and score gradients adaptively 3Aggregate the benign gradients2   
+   
+   
+   Clients Side
+1
+Figure 1: The overview of our defense process. Step 1 and step 2 are our core contributions.
+XYGradient Feature:
+Figure 2: Demonstration of feature of gradient on two di-
+mensional space. w0is initial global model w0andwiis
+the local model of the i-th client. wi−w0is the gradient
+and we define the feature of gradient as(|x+y|, l, θ).
+Manhattan Distance. However, the Euclidean distance
+suffers from the so-called “curse of dimensionality” [48],
+which renders distance metrics less sensitive in high dimen-
+sional space, especially in the case of Euclidean distance.
+Theorem 1 usesDmaxk
+d−Dmink
+d
+Dmink
+dto indicate the “meaning-
+fulness” of a distance referred as the Relative Contrast .
+It demonstrates that the distance metric is meaningless
+in high-dimensional space because as dimensionality in-
+creases, the distance between the nearest and the furthest
+neighbor approximates to be the same.
+Theorem 1 (Beyer et. al.[5] The curse of dimensionality)
+Iflim
+d→∞var∥Xd∥k
+E[∥Xd∥k]
+= 0,then
+Dmaxk
+d−Dmink
+d
+Dmink
+d→p0,
+where ddenotes the dimensionality of the data space, E[X]
+andvar[X]denotes the expected value and variance of arandom variable X,Dmaxk
+dandDmink
+dmeans the far-
+thest/nearest distance of the Npoints to the origin using
+the distance metric Lk.
+To find out which distance metric is more meaningful
+in high-dimensional space, we size up the relation between
+the dimension dand the distance Lk. We have Lemma 1,
+which shows that Dmaxk
+d−Dmink
+dincreases at the ratio
+ofd(1/k)−(1/2).
+Lemma 1 (Hinneburg et.al.[22]) LetFbe an arbitrary
+distribution of two points and the distance function ∥ · ∥
+be an Lkmetric. Then,
+lim
+d→∞EDmaxk
+d−Dmink
+d
+d(1/k)−(1/2)
+=Ck,
+where Ckis some constant dependent on k.
+Subsequently, we use the value of Dmaxk
+d−Dmink
+das
+a criterion to evaluate the ability of a particular metric to
+discriminate different vectors in high dimensional space.
+Proposition 1 LetMd=Dmax1
+d−Dmin1
+dreflect the
+discriminating ability of Manhattan distance and Ud=
+Dmax2
+d−Dmin2
+dreflect the discriminating ability of Eu-
+clidean distance. Then,
+lim
+d→∞EMd
+Ud·d1
+2
+=C′.
+where C′is a constant. Proof see in Appendix C.
+Proposition 1 shows that MdandUd·d1
+2are infinite of the
+same order. Since d1
+2is also an infinite value, Mdtowers
+above Ud, suggesting that Manhattan can discriminate more
+than the Euclidean distance in high-dimension space. Given
+4655
+
+this, we conclude that the Manhattan distance is better than
+the Euclidean metric, withstanding the curse of dimension-
+ality, which chimes in with the previous experiment [1, 37].
+The parameters of neural networks can be viewed as a typi-
+cal high-dimensional space, especially when the number of
+parameters increases as the trend in deep learning applica-
+tions [9, 44, 42, 15, 34, 54, 43]. In light of this and The-
+orem 1, we argue that Euclidean distance is insufficient to
+discriminate between malicious and benign gradients. With
+Proposition 1, we introduce the Manhattan distance metric
+to describe the characteristics of gradients which captures
+the difference in high dimensional space better.
+Multiple Metrics as Feature of Gradient. Another
+problem that we identify as discussed in Section 1 is that
+current methods conduct defense on a single metric basis.
+With only one metric, a sophisticated attacker could effort-
+lessly bypass them with a well-designed gradient. For in-
+stance, PGD attack [47] manage to break the defense based
+on Euclidean distances by clipping the gradient norm to
+a small value. Moreover, attackers conduct attacks under
+different environments and data distributions, leading to
+malicious gradients with diverse characteristics that a sin-
+gle metric cannot handle. To this end, we propose mul-
+tiple metrics to cooperatively identify the malicious gra-
+dient by defining the feature of gradient as the angle by
+the Cosine similarity, length by the Euclidean distances,
+and its Manhattan norm by the Manhattan distance, namely,
+x= (xMan, xEul, xCosine ). Here, xMan denotes the Man-
+hattan distance, xEuldenotes the Euclidean distance and
+xCosine denotes the Cosine similarity. Figure 2 provides
+a schematic diagram of the gradient feature . We compute
+the gradient feature xMan,xEul, and xCosine of the i-th
+client of each round as follows: x(i)
+Man =∥wi−w0∥1,
+x(i)
+Eul=∥wi−w0∥2,x(i)
+Cosine =⟨w0wi⟩
+∥w0∥·∥wi∥, where w0de-
+notes the global model before federated training and wide-
+notes the i-th client’s local model after training, ∥·∥1means
+theL1norm of a vector, ∥·∥2means the L2norm of a vec-
+tor,⟨·,·⟩and represents inner product. After defining the
+feature of gradient , we utilize it for malicious identifica-
+tion. The goal is to identify the outlier among the gradients.
+We use the sum of the distance between each gradient as the
+indicator. Formally, we define it as Equation 3.
+x′(i)= (KX
+j,j̸=i|x(i)
+Man−x(j)
+Man|,
+KX
+j,j̸=i|x(i)
+Eul−x(j)
+Eul|,KX
+j,j̸=i|x(i)
+Cosine −x(j)
+Cosine|),(3)
+3.3. Dynamic Weighting Through Whitening
+After defining the feature of gradient and indicator, we
+now provide an approach to score each gradient. Two fac-tors are taken into account when considering an efficient
+way to turn the indicator into a unified score that works un-
+der various data distributions and attacks.
+• Different scales of the three distance metrics are the
+first obstacle before utilizing these metrics collabora-
+tively. Since each metric is correlated, a novel regular-
+ization is required instead of the usual normalization
+by the maximum value.
+• Different data distributions ( e.g. different degrees of
+non-IID) render the gradients of both malicious and
+benign clients different. Thus, dynamic weighting is
+required to cope with various environments and attacks
+to achieve a universal defense.
+Considering the above factors, we propose first to project
+the value of the metrics in the feature of gradient to its cor-
+responding principal axis by applying a whitening process:
+δ(i)=q
+x′(i)⊤Σ−1x′(i). (4)
+where Σis the the covariance matrix of X =
+[x′(1)x′(2)···x′(K)]⊤. Since we need to calculate the in-
+verse of the covariance matrix Σ, the number of samples
+must be larger than the number of features, i.e., K > 3.
+Please notice that the inverse of the covariance matrix is cal-
+culated based on the selected gradients, which will change
+the weights of the features dynamically depending on the
+feature distribution, hence ”dynamic weighting”. With such
+a dynamic weight, our method can better adapt to different
+environments and resist various attacks.
+3.4. Aggregation of Benign Gradients
+After obtaining the score of each gradient, we aggregate
+the gradients with high scoring. A higher score indicates
+that the gradient is less divergent among all. After the se-
+lection of ”benign” gradients, we can aggregate them with
+any existing aggregation methods (e.g. Averaging of gradi-
+ents). We follow [35] and perform standard FedAvg on the
+”benign” gradients. A detailed analysis of aggregation of
+benign gradients is in Appendix A.1.
+4. Experiment Setup
+We will first introduce the settings and then the objective
+of our experiments.
+Datasets. We conduct our experiments on multiple
+datasets, including two visual datasets, CIFAR-10 [27] and
+EMNIST [12]. We also experiment on other datasets to
+prove the generalization ability, including CINIC10 [13],
+LOAN [25] and Sentiment140 [18] as follows:
+•CIFAR-10 dataset [27] is a vision classification
+dataset containing 50,000 training samples and
+4656
+
+Algorithm 1 Our aggregation algorithm
+Input: Total number of clients in each round K, models of
+clients w(1),w(2), ...,w(K), last global model w0,fraction
+selected to aggregation p, global learning rate η, size of the
+i−thclient dataset n(i)
+Output: Global model w∗
+1:fori∈ {1,2, ..., K}do ▷compute the gradients
+features
+2: x(i)
+Man← ∥w0−wi∥1
+3: x(i)
+Eul← ∥w0−wi∥2
+4: x(i)
+Cos←⟨w0,wi⟩
+∥w0∥·∥wi∥
+5: x(i)←(x(i)
+Man, x(i)
+Eul, x(i)
+Cos)
+6:end for
+7:fori, j∈ {1,2, ..., K}do ▷compute the sum of the
+distance be- tween each gradient
+8: x′(i)
+Man←PK
+j,j̸=i|x(i)
+Man−x(j)
+Man|
+9: x′(i)
+Eul←PK
+j,j̸=i|x(i)
+Eul−x(j)
+Eul|
+10: x′(i)
+Cos←PK
+j,j̸=i|x(i)
+Cos−x(j)
+Cos|
+11: x′(i)←(x′(i)
+Man, x′(i)
+Eul, x′(i)
+Cos)
+12:end for
+13:X←[x′(1),x′(2), ...,x′(K)]⊤
+14:Σ←the Covariance of X ▷compute the adaptive
+weight matrix in this round
+15:fori∈ {1,2, ..., K}do
+16: δ(i)←p
+x′(i)⊤·Σ−1·x′(i)▷dynamically
+compute the divergency
+17:end for
+18:Remove the K·(1−p)models with the high divergency
+δ(i), remaining models as B
+19:w∗←w0+η·P
+i∈Bn(i)·(w(i)−w0)P
+i∈Bn(i)
+10,000testing samples with ten classes. To simulate
+the FL environment, we set the aof the Dirichlet dis-
+tribution to be 0.5, representing a non-IID distribution.
+Smaller ameans a larger degree of non-IID.
+•EMNIST dataset [12] is a digit classification dataset
+consisting of 280,000real-world handwritten images
+of digits from 0to9. We also set the degree of non-IID
+to be a= 0.5.
+•CINIC10 [13] has a total of 270,000 images, 4.5 times
+that of CIFAR-10, which is constructed from two dif-
+ferent sources: ImageNet and CIFAR-10. We set the
+non-IID degree as a= 0.5.
+•Lending Club Loan dataset (LOAN) [25] contains
+financial information such as loan information and
+credit scores for loan status prediction. There are
+2,260,668 samples with a total of 9 classes. To sim-
+ulate a more realistic situation, we divide the data by
+US states, where each state represents one client. Weset the non-IID parameter a= 0.9.
+•Sentiment140 [18] is a publicly available English
+Twitter sentiment classification dataset containing 1.6
+million tweets, of which 800,000 are for training, and
+the other 800,000 are for testing. Each tweet in the
+dataset is labeled with a sentiment polarity (positive,
+neutral, or negative).
+Models. Different models are used on different datasets
+to demonstrate the generality of our approach. A 9-layer
+VGG style network (VGG-9) [45] is trained on the CIFAR-
+10. On the EMNIST, we train LeNet-5 model [28]. We train
+the LSTM model [23] for Sentiment140 and a network with
+three fully-connected layers for LOAN.
+Backdoor Attacks. We implement both pixel-pattern
+and semantic backdoors. To make the attack more challeng-
+ing, we use the multiple-shot attack instead of the single-
+shot. The following are the attack methods we use:
+•Model Replacement Attack [4]: Malicious clients
+generate backdoor gradients during their local training.
+Attackers scale up their gradients to ensure that the ma-
+licious model will replace the global model. Usually,
+the scaling factor is N/K .;
+•DBA Attack [50]: DBA decomposes a global trigger
+pattern into separate local patterns and embeds them
+into the training sets of different attackers, resulting in
+a more negligible difference between benign and back-
+door gradients;
+•PGD Attack [47]: To bypass the Euclidean-based
+defense, PGD Attack projects the model parameter
+within the ball centered around the global model;
+•Edge-case PGD Attack [47]: Attackers have a set of
+edge-case samples and some benign samples as their
+poisoned datasets. Edge-case samples are unlikely to
+exist in the benign training set. Thus, the benign gradi-
+ents cannot dilute the backdoor. We launch this attack
+in the form of PGD. The Edge-case PGD attack is so
+stealthy that most defenses cannot defend against it.
+Evaluation. We leverage the following two metrics for
+evaluating the effectiveness of our defense:
+•Backdoor Accuracy (BA) indicates whether the at-
+tacker succeeds. It shows the accuracy of the model
+on the backdoor task. The attackers aim to maximize
+this metric, and the lower the BA, the more efficient
+the defense.
+•Main Task Accuracy (MA) is the accuracy on the
+main task. The overall objective of all participants in
+an FL system is to maximize MA. The benign clients
+maximize the model performance, while the attackers
+seek to be stealthy and maintain MA. Thus, the defense
+should not cause a significant drop in MA, which we
+report to demonstrate that our defense does not affect
+4657
+
+the functionality of the FL system. We report all BA
+and MA values in percentages.
+Hyperparameters are detailed in Appendix B.
+Objectives of Experiments. Firstly, we aim to illustrate
+the effectiveness of our proposed defense under different at-
+tacks by comparing it with the current and previous state-of-
+the-art defenses. Secondly, we demonstrate that the perfor-
+mance of our defense is consistent under different scenarios
+(e.g., different degrees of non-IID aand different attack fre-
+quencies). Thirdly, we figure out the reason for our defense
+works through the ablation study in Section 5.4.
+5. Experiment Results
+5.1. Robustness against Different Attacks and Com-
+parison with SOTA
+We first demonstrate the robustness of our approach un-
+der different attacks and then compare our methods with the
+state-of-the-art defense methods such as Krum [8], Multi-
+Krum [8], Foolsgold [17], RFA [41], Weak-DP [46], and
+Flame [38] in Table 1. All the defenses except RFA and
+Weak-DP successfully defended against the model replace-
+ment attack since RFA and Weak-DP still incorporate some
+malicious gradient into the global model. Our defense
+achieves the lowest BA on both datasets( 0.56% and0.00%)
+with little impact on the MA. Under the DBA attack, Multi-
+Krum almost has no effect. Flame and our method also de-
+teriorate because 40% of the participants in each round are
+malicious, which significantly impacts the method of select-
+ing multiple clients for aggregation. Although Krum and
+Foolsgold successfully defend against the DBA attack, they
+also negatively affect the overall performance of the global
+model. Our defense can reduce the BA to less than 10%
+without affecting the MA.
+PGD attack is much stealthier than the above two which
+Krum, RFA, and Multi-Krum fail to detect. Moreover, once
+they select the wrong gradient for aggregation, the global
+model is replaced, leading to a worse BA than FedAvg.
+Ours and Flame achieve the best effect of 0.56% and0.00%
+on the two datasets, respectively. Edge-case PGD is the
+hardest of all since it is both stealthy and effective since it at-
+tacks with edge-case samples and projects the gradient back
+to the L2norm ball. All the previous defenses have limited
+effect on this attack. Flame reduces the BA to 5.12%. How-
+ever, Flame suffers from a 6%drop on MA, which is a result
+of adding noise. In comparison, ours achieves a much lower
+BA of 3.06% with almost no impact on MA.
+On EMNIST, we also achieve better defense compared
+to up-to-date methods. Remarkably, we achieve 0.0%BA
+under both PGD and Edge-case PGD attacks meaning that
+we defend entirely against these two adversaries. We also
+achieve similar performance without sacrificing the benignperformance against model replacement and DBA. To pro-
+vide an overall comparison with previous methods, we fol-
+low [52] and design an improved version of the ranking
+score for each defense with respect to baseline FedAvg.
+We use the percentage of improvement over the baseline to
+score and compute it on MA/BA respectively, formally as
+KMA/BA−BMA/BA
+BMA/BAwhere Kdenotes some methods and Bde-
+notes baseline. Adding up (score MA−score BA)across
+all attacks produces the ranking score for each defense. As
+shown in the last column of Table 1, we show that our
+method obtains the highest ranking score with almost 400%
+better than the baseline and outperforms the second-best
+Flame by around 0.5. We detail the ranking score in Ap-
+pendix D.
+0200 400 600 800 1000
+Round020406080100 Main T ask AccuracyFedAvg
+FoolsgoldKrum
+Multi-KrumWeak-DP
+RFAFlame
+Ours
+0200 400 600 800 1000
+Round020406080100 Backdoor Accuracy
+(a) CIFAR10
+0200 400 600 800 1000
+Round020406080100 Main T ask Accuracy 0200 400 600 800 1000
+Round020406080100 Backdoor Accuracy
+(b) EMNIST
+Figure 3: MA(%) and BA(%) of various defenses under
+Edge-case PGD attack.
+We show the MA and BA along the training process of
+the seven defenses under the Edge-case PGD attack in Fig-
+ure 3. Only our method and Flame successfully resist the
+attack during the entire training process, and Flame also
+dampens the MA. The disadvantage of our approach is that
+the convergence speed is slightly slowed down compared to
+FedAvg, but it is still much better than the compared de-
+fenses, e.g., Krum and Foolsgold.
+5.2. Impact of Training Environment
+In this section, we demonstrate that our defense is in-
+variant to the different training environments, i.e. degrees
+of non-IID, and attack frequency.
+Impact of Different Degrees of Non-IID. As mentioned
+abundantly in Section 3.3, the different data distributions
+contribute to one of the hardest problems in distance-based
+defense. Thus, to illustrate the effectiveness of our method,
+we demonstrate that our defense is invariant to the different
+degrees of non-IID. The experiment is conducted with the
+4658
+
+Table 1: Robustness of our approach compared to the SOTA defenses for various challenging attacks.
+Dataset DefenseModel Replacement [4] DBA [50] PGD [47] Edge-case PGD [47]Ranking Score ↑
+MA↑ BA↓ MA↑ BA↓ MA↑ BA↓ MA↑ BA↓CIFAR10FedAvg [35] 86.95 64.80 79.23 90.44 87.04 14.44 87.14 55.10 0
+RFA [41] 86.69(+0.00) 25.56(-0.61) 79.6(+0.00) 57.69(-0.36) 87.1(+0.00) 52.56(+2.64) 86.47(-0.01) 65.31(+0.19) -1.86
+Foolsgold [17] 85.71(-0.01) 6.67(-0.90) 77.56(-0.02) 3.43(-0.96) 84.92(-0.02) 14.44(+0.00) 85.72(-0.02) 45.41(-0.18) +1.96
+Krum [8] 82.17(-0.05) 6.11(-0.91) 78.18(-0.01) 6.01(-0.93) 82.32(-0.05) 66.67(+3.62) 81.23(-0.07) 59.18(+0.07) -2.04
+Multi-Krum [8] 86.55(+0.00) 1.67(-0.97) 79.33(0.00) 91.39(+0.01) 86.52(-0.01) 17.78(+0.23) 87.4(+0.00) 60.2(+0.09) +0.63
+Weak-DP [46] 74.41(-0.14) 46.11(-0.29) 10.00(-0.87) 0.00(-1.00) 73.61(-0.15) 12.78(-0.11) 73.84(-0.15) 53.06(-0.04) +0.12
+Flame [38] 80.58(-0.07) 0.56(-0.99) 76.78(-0.03) 37.24(-0.59) 81.24(-0.07) 0.56(-0.96) 81.41(-0.07) 5.12(-0.91) +3.21
+Ours 86.34(-0.01) 0.56(-0.99) 79.61 (+0.00) 9.98(-0.89) 86.44(-0.01) 0.56(-0.96) 86.86(+0.00) 3.06(-0.94) +3.77EMNISTFedAvg [35] 99.54 96.00 97.68 94.13 99.55 10.00 99.37 96.00 0
+RFA [41] 99.57(+0.00) 6.00(-0.94) 97.87 (+0.00) 1.39(-0.99) 99.32(+0.00) 4.00(-0.60) 99.29(+0.00) 97.00(+0.01) +2.51
+Foolsgold [17] 96.42(-0.03) 98.00(+0.02) 97.24(+0.00) 0.64(-0.99) 99.07(+0.00) 94.00(+8.40) 99.13(+0.00) 98.00(+0.02) -7.49
+Krum [8] 99.22(+0.00) 0.00(-1.00) 97.7(+0.00) 0.56(-0.99) 99.12(+0.00) 1.00(-0.90) 99.14(+0.00) 12.00(-0.88) +3.76
+Multi-Krum [8] 99.58 (+0.00) 0.00(-1.00) 97.85(+0.00) 47.43(-0.50) 99.54(+0.00) 0.00(-1.00) 99.57(+0.00) 84.00(-0.13) +2.63
+Weak-DP [46] 99.37(+0.00) 86.00(-0.10) 10.00(-0.90) 0.00(-1.00) 99.41(+0.00) 14.00(+0.40) 99.39(+0.00) 89.00(-0.07) -0.12
+Flame [38] 99.39(+0.00) 0.00(-1.00) 97.12(-0.01) 17.38(-0.82) 99.39(+0.00) 0.00(-1.00) 99.44(+0.00) 13.00(-0.86) +3.67
+Ours 99.53(+0.00) 0.00(-1.00) 97.39(+0.00) 4.23(-0.96) 99.54(+0.00) 0.00(-1.00) 99.58 (+0.00) 0.00(-1.00) +3.95
+Edge-case PGD attack. Figure 4 shows that the BA remains
+low in all cases. Our method only slightly impacts the MA
+witha= 0.2.
+0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+Degree of Non-iid020406080100 Accuracy
+(a) CIFAR10Ours MA Ours BA FedAvg MA FedAvg BA
+0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0
+Degree of Non-iid020406080100 Accuracy
+(b) EMNIST
+Figure 4: Accuracy(%) of our defense under Edge-case
+PGD attack on different degrees of non-IID, which is in-
+dicated by the aparameter of the Dirichlet distribution.
+10 20 30 40 50 60
+Attackers Among All Clients(%)020406080100 Backdoor Accuracy
+(a) CIFAR10FedAvg
+KrumMulti-Krum
+RFAFoolsgold
+Weak-DPFlame
+Ours
+10 20 30 40 50 60
+Attackers Among All Clients(%)020406080100 Backdoor Accuracy
+(b) EMNIST
+Figure 5: BA(%) of various defenses under the backdoor
+attack versus percentage of attackers among all clients.
+Impact of Attacker Percentage. We show the BA per-
+formance with different ratios of attackers under the back-
+door attack in Figure 5, where we compare ours with other
+methods. As a result of our rigorous experiment settings,
+it usually selects more than K/2adversarial models in each
+round, so all defenses, especially the clustering-based meth-
+ods, fail to defend when 50% of clients are compromised.For EMNIST, BA rises steeply as the simplicity of the
+task, achieving high accuracy with few parameters injected.
+Nonetheless, our method performs significantly superior to
+other methods, and exhibits invariance to the number of at-
+tackers encountered.
+12345678910
+Attack Interval020406080100 Accuracy
+(a) CIFAR10Ours MA Ours BA FedAvg MA FedAvg BA
+12345678910
+Attack Interval020406080100 Accuracy
+(b) EMNIST
+Figure 6: Accuracy(%) of our defense under Edge-case
+PGD attack versus attack interval.
+Impact of Attack Frequency. The frequency of the at-
+tack affects the strength and persistence of the attack. We
+demonstrate that our defense is invariant to the frequency of
+attack in Figure 6 where we show that our defense achieves
+consistently low BA under all attack intervals. Since the
+other defenses cannot resist the edge-case PGD with the
+minimum frequency(attack interval of 10), we do not plot
+their results.
+5.3. Generalization to Different Datasets
+We experiment on the LOAN and Sentiment140, as
+shown in Table 2. Our method achieves high MA and
+low BA on both datasets, proving the adaptivity to differ-
+ent models and tasks.
+5.4. Ablation Study
+The above experiments present the remarkable defense
+ability of our approach. In this section, we conduct an abla-
+4659
+
+Table 2: Effectiveness of our method against backdoor at-
+tack on other types of datasets.
+DefenseCINIC10 LOAN Sentiment140
+MA↑BA↓MA↑BA↓MA↑BA↓
+FedAvg 80.02 36.22 89.05 61.36 82.59 89.17
+Ours 76.24 4.59 88.52 0 81.67 5.83
+Table 3: Effectiveness of the metrics in our approach to de-
+fending against the various attacks on CIFAR10.
+DefensesModel
+ReplacementPGDEdge-case
+PGD
+MA/BA MA/BA MA/BA
+Man 83.86/ 0.56 83.74/25.56 85.3/64.80
+Eul 86.24/ 0.56 85.52/17.78 87.12 /54.08
+Cos 84.22/2.22 83.84/30.00 85.38/66.84
+Man+Eul 84.09/1.11 84.17/28.63 84.3/67.35
+Man+Cosine 85.74/1.67 85.16/23.68 85.86/6.63
+Cosine+Eul 86.31/ 0.56 85.44/16.11 85.14/63.78
+Man+Cosine+Eul 86.34 /0.56 86.44 /0.56 86.86/ 3.06
+tion study to understand the role of each component.
+Multi-metrics Identifies the Stealthiest Attacks. We
+first conduct an ablation study on the multi-metrics, as
+shown in Table 3. We observe the following: 1. All three
+metrics perform poorly individually. 2. Manhattan dis-
+tance improves the defense ability when combined with the
+other metrics. 3. Cosine similarity combined with Man-
+hattan distance provides the best defense against the Edge-
+case PGD. Given the above observations, we conclude that
+multi-metrics adaptively defends against universal back-
+doors. The introduced Manhattan metric contributes to the
+defense against the stealthiest attack ( e.g., Edge-case PGD).
+To further demonstrate the claim that a single metric cannot
+identify malicious gradients of diverse characteristics, we
+show the dominance of each metric under different attacks.
+We take the metric as the dominant one with the most con-
+siderable contribution to this round’s scoring and plot their
+frequency in Figure 7.
+Firstly, we show that Manhattan distance contributes to
+the defense of PGD and Edge-case PGD, complementing
+the Cosine similarity justifying the above observations 2
+and 3. We also notice that Euclidean is never dominant
+under PGD and Edge-case PGD, consistent with the anal-
+ysis that these two attacks bypass L2norm through projec-
+tion back to L2norm ball. We also notice that Manhattan
+distance plays no role under the model replacement attack,
+consistent with the above experiment that Manhattan does
+not affect the final BA. It is because model replacement at-
+tack scales the gradient of the malicious client, making it
+susceptible to Cosine and Euclidean distances. Finally, weconclude that better defense can be achieved if multiple in-
+stead of single metrics are utilized since different metrics
+dominantly detect different malicious gradients.
+Model ReplacementPGD
+Edge-case PGD
+Attack Method01020304050Dominant FrequencyManhattan
+Euclidean
+Cosine
+Figure 7: Frequency of dominance of each metric under
+different attacks on CIFAR10.
+Dynamic Weighting through Whitening Process
+Adaptively Adjust the Scoring. We illustrate the effec-
+tiveness of our whitening process discussed in Section 3.3
+in Table 4 by comparing it with the standard max normal-
+ization. BA increases by a large margin if only max nor-
+malization is applied, which illustrates that the whitening
+process plays an essential role in identifying the malicious
+under non-IID distributions. Moreover, we notice the MA
+increases as we apply the whitening process, which shows
+that it can flexibly identify the benign but different gradients
+(due to non-IID) and the true malicious ones.
+Table 4: Effectiveness of different weighting methods on
+defense against various attacks on CIFAR10.
+Model Replacement PGD Edge-case PGD
+WeightingMA↑ BA↓ MA↑BA↓MA↑ BA↓
+Max Norm 83.86 0.56 83.74 25.56 84.08 62.24
+Whitening 86.34 0.56 86.44 0.56 86.86 3.06
+6. Conclusion
+Existing defense methods fail to handle backdoor attacks
+with malicious updates similar to benign ones, especially
+when benign clients possess data of non-independent and
+iden tical distribution. In this paper, we propose a novel
+adaptive multi-metrics defense method by leveraging multi-
+ple metrics with dynamic weighting to defend against back-
+door attacks in FL, withstanding a wide range of stealthy
+and elaborate attacks. We conduct exhaustive experiments
+to evaluate our approach proving its effectiveness over a
+wide range of attack settings.
+Acknowledgements
+This work is supported by the Key-Area Research and
+Development Program of Guangdong Province under Grant
+2019B010137001.
+4660
+
+References
+[1] Charu C Aggarwal, Alexander Hinneburg, and Daniel A
+Keim. On the surprising behavior of distance metrics in high
+dimensional space. In International conference on database
+theory , pages 420–434. Springer, 2001.
+[2] Sebastien Andreina, Giorgia Azzurra Marson, Helen
+M¨ollering, and Ghassan Karame. Baffle: Backdoor detection
+via feedback-based federated learning. In 2021 IEEE 41st
+International Conference on Distributed Computing Systems
+(ICDCS) , pages 852–863. IEEE, 2021.
+[3] Sean Augenstein, H Brendan McMahan, Daniel Ram-
+age, Swaroop Ramaswamy, Peter Kairouz, Mingqing Chen,
+Rajiv Mathews, et al. Generative models for effective
+ml on private, decentralized datasets. arXiv preprint
+arXiv:1911.06679 , 2019.
+[4] Eugene Bagdasaryan, Andreas Veit, Yiqing Hua, Deborah
+Estrin, and Vitaly Shmatikov. How to backdoor federated
+learning. In International Conference on Artificial Intelli-
+gence and Statistics , pages 2938–2948. PMLR, 2020.
+[5] Kevin Beyer, Jonathan Goldstein, Raghu Ramakrishnan, and
+Uri Shaft. When is “nearest neighbor” meaningful? In In-
+ternational conference on database theory , pages 217–235.
+Springer, 1999.
+[6] Arjun Nitin Bhagoji, Supriyo Chakraborty, Prateek Mittal,
+and Seraphin Calo. Analyzing federated learning through
+an adversarial lens. In International Conference on Machine
+Learning , pages 634–643. PMLR, 2019.
+[7] Battista Biggio, Blaine Nelson, and Pavel Laskov. Poison-
+ing attacks against support vector machines. arXiv preprint
+arXiv:1206.6389 , 2012.
+[8] Peva Blanchard, El Mahdi El Mhamdi, Rachid Guerraoui,
+and Julien Stainer. Machine learning with adversaries:
+Byzantine tolerant gradient descent. Advances in Neural In-
+formation Processing Systems , 30, 2017.
+[9] Tom Brown, Benjamin Mann, Nick Ryder, Melanie Sub-
+biah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakan-
+tan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Lan-
+guage models are few-shot learners. Advances in neural in-
+formation processing systems , 33:1877–1901, 2020.
+[10] Xiaoyu Cao, Minghong Fang, Jia Liu, and Neil Zhenqiang
+Gong. Fltrust: Byzantine-robust federated learning via trust
+bootstrapping. arXiv preprint arXiv:2012.13995 , 2020.
+[11] Xinyun Chen, Chang Liu, Bo Li, Kimberly Lu, and Dawn
+Song. Targeted backdoor attacks on deep learning systems
+using data poisoning. arXiv preprint arXiv:1712.05526 ,
+2017.
+[12] Gregory Cohen, Saeed Afshar, Jonathan Tapson, and Andre
+Van Schaik. Emnist: Extending mnist to handwritten letters.
+In2017 international joint conference on neural networks
+(IJCNN) , pages 2921–2926. IEEE, 2017.
+[13] Luke N Darlow, Elliot J Crowley, Antreas Antoniou, and
+Amos J Storkey. Cinic-10 is not imagenet or cifar-10. arXiv
+preprint arXiv:1810.03505 , 2018.
+[14] Cynthia Dwork, Aaron Roth, et al. The algorithmic foun-
+dations of differential privacy. Foundations and Trends® in
+Theoretical Computer Science , 9(3–4):211–407, 2014.[15] William Fedus, Barret Zoph, and Noam Shazeer. Switch
+transformers: Scaling to trillion parameter models with sim-
+ple and efficient sparsity, 2021.
+[16] Shuhao Fu, Chulin Xie, Bo Li, and Qifeng Chen. Attack-
+resistant federated learning with residual-based reweighting.
+arXiv preprint arXiv:1912.11464 , 2019.
+[17] Clement Fung, Chris JM Yoon, and Ivan Beschastnikh. The
+limitations of federated learning in sybil settings. In 23rd
+International Symposium on Research in Attacks, Intrusions
+and Defenses (RAID 2020) , pages 301–316, 2020.
+[18] Alec Go, Richa Bhayani, and Lei Huang. Twitter sentiment
+classification using distant supervision. CS224N project re-
+port, Stanford , 1(12):2009, 2009.
+[19] Tianyu Gu, Brendan Dolan-Gavitt, and Siddharth Garg. Bad-
+nets: Identifying vulnerabilities in the machine learning
+model supply chain. arXiv preprint arXiv:1708.06733 , 2017.
+[20] Rachid Guerraoui, S ´ebastien Rouault, et al. The hidden vul-
+nerability of distributed learning in byzantium. In Interna-
+tional Conference on Machine Learning , pages 3521–3530.
+PMLR, 2018.
+[21] Meng Hao, Hongwei Li, Guowen Xu, Sen Liu, and Haomiao
+Yang. Towards efficient and privacy-preserving federated
+deep learning. In ICC 2019-2019 IEEE international con-
+ference on communications (ICC) , pages 1–6. IEEE, 2019.
+[22] Alexander Hinneburg, Charu C Aggarwal, and Daniel A
+Keim. What is the nearest neighbor in high dimensional
+spaces? In 26th Internat. Conference on Very Large
+Databases , pages 506–515, 2000.
+[23] Sepp Hochreiter and J ¨urgen Schmidhuber. Long short-term
+memory. Neural computation , 9(8):1735–1780, 1997.
+[24] Peter Kairouz, H Brendan McMahan, Brendan Avent,
+Aur´elien Bellet, Mehdi Bennis, Arjun Nitin Bhagoji, Kallista
+Bonawitz, Zachary Charles, Graham Cormode, Rachel Cum-
+mings, et al. Advances and open problems in federated learn-
+ing. Foundations and Trends® in Machine Learning , 14(1–
+2):1–210, 2021.
+[25] Wendy Kan. Lending club loan data.
+https://www.kaggle.com/ wendykan/lending-club-loan-
+data. . 2019.
+[26] Jakub Kone ˇcn`y, H Brendan McMahan, Felix X Yu, Peter
+Richt ´arik, Ananda Theertha Suresh, and Dave Bacon. Fed-
+erated learning: Strategies for improving communication ef-
+ficiency. arXiv preprint arXiv:1610.05492 , 2016.
+[27] Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple
+layers of features from tiny images. 2009.
+[28] Yann LeCun, L ´eon Bottou, Yoshua Bengio, and Patrick
+Haffner. Gradient-based learning applied to document recog-
+nition. Proceedings of the IEEE , 86(11):2278–2324, 1998.
+[29] Suyi Li, Yong Cheng, Wei Wang, Yang Liu, and Tianjian
+Chen. Learning to detect malicious clients for robust feder-
+ated learning. arXiv preprint arXiv:2002.00211 , 2020.
+[30] Yijiang Li, Wentian Cai, Ying Gao, Chengming Li, and Xip-
+ing Hu. More than encoder: Introducing transformer decoder
+to upsample. In 2022 IEEE International Conference on
+Bioinformatics and Biomedicine (BIBM) , pages 1597–1602.
+IEEE, 2022.
+4661
+
+[31] Yuezun Li, Yiming Li, Baoyuan Wu, Longkang Li, Ran
+He, and Siwei Lyu. Invisible backdoor attack with sample-
+specific triggers. In Proceedings of the IEEE/CVF Interna-
+tional Conference on Computer Vision , pages 16463–16472,
+2021.
+[32] Yijiang Li, Xinjiang Wang, Lihe Yang, Litong Feng, Wayne
+Zhang, and Ying Gao. Diverse cotraining makes strong semi-
+supervised segmentor. Proceedings of the IEEE/CVF Inter-
+national Conference on Computer Vision (ICCV) , 2023.
+[33] Yingqi Liu, Shiqing Ma, Yousra Aafer, Wen-Chuan Lee,
+Juan Zhai, Weihang Wang, and Xiangyu Zhang. Trojaning
+attack on neural networks. 2017.
+[34] Ze Liu, Han Hu, Yutong Lin, Zhuliang Yao, Zhenda Xie,
+Yixuan Wei, Jia Ning, Yue Cao, Zheng Zhang, Li Dong, et al.
+Swin transformer v2: Scaling up capacity and resolution. In
+Proceedings of the IEEE/CVF Conference on Computer Vi-
+sion and Pattern Recognition , pages 12009–12019, 2022.
+[35] Brendan McMahan, Eider Moore, Daniel Ramage, Seth
+Hampson, and Blaise Aguera y Arcas. Communication-
+efficient learning of deep networks from decentralized data.
+InArtificial intelligence and statistics , pages 1273–1282.
+PMLR, 2017.
+[36] Brendan McMahan and Daniel Ramage. Federated learn-
+ing: Collaborative machine learning without centralized
+training data. https://ai.googleblog. com/2017/04/federated-
+learning-collaborative.html , 2017.
+[37] Evgeny M Mirkes, Jeza Allohibi, and Alexander Gorban.
+Fractional norms and quasinorms do not help to overcome
+the curse of dimensionality. Entropy , 22(10):1105, 2020.
+[38] Thien Duc Nguyen, Phillip Rieger, Huili Chen, Hossein
+Yalame, Helen M ¨ollering, Hossein Fereidooni, Samuel Mar-
+chal, Markus Miettinen, Azalia Mirhoseini, Shaza Zeitouni,
+et al. Flame: Taming backdoors in federated learning. In 31st
+USENIX Security Symposium (USENIX Security 22) , pages
+1415–1432, 2022.
+[39] Thien Duc Nguyen, Phillip Rieger, Markus Miettinen, and
+Ahmad-Reza Sadeghi. Poisoning attacks on federated
+learning-based iot intrusion detection system. In Proc. Work-
+shop Decentralized IoT Syst. Secur.(DISS) , pages 1–7, 2020.
+[40] Mustafa Safa Ozdayi, Murat Kantarcioglu, and Yulia R Gel.
+Defending against backdoors in federated learning with ro-
+bust learning rate. In Proceedings of the AAAI Conference on
+Artificial Intelligence , volume 35, pages 9268–9276, 2021.
+[41] Krishna Pillutla, Sham M Kakade, and Zaid Harchaoui. Ro-
+bust aggregation for federated learning. IEEE Transactions
+on Signal Processing , 70:1142–1154, 2022.
+[42] Aditya Ramesh, Prafulla Dhariwal, Alex Nichol, Casey Chu,
+and Mark Chen. Hierarchical text-conditional image gen-
+eration with clip latents. arXiv preprint arXiv:2204.06125 ,
+2022.
+[43] Carlos Riquelme, Joan Puigcerver, Basil Mustafa, Maxim
+Neumann, Rodolphe Jenatton, Andr ´e Susano Pinto, Daniel
+Keysers, and Neil Houlsby. Scaling vision with sparse mix-
+ture of experts. Advances in Neural Information Processing
+Systems , 34:8583–8595, 2021.
+[44] Jing Shao, Siyu Chen, Yangguang Li, Kun Wang, Zhenfei
+Yin, Yinan He, Jianing Teng, Qinghong Sun, Mengya Gao,Jihao Liu, et al. Intern: A new learning paradigm towards
+general vision. arXiv preprint arXiv:2111.08687 , 2021.
+[45] Karen Simonyan and Andrew Zisserman. Very deep convo-
+lutional networks for large-scale image recognition. arXiv
+preprint arXiv:1409.1556 , 2014.
+[46] Ziteng Sun, Peter Kairouz, Ananda Theertha Suresh, and
+H Brendan McMahan. Can you really backdoor federated
+learning? arXiv preprint arXiv:1911.07963 , 2019.
+[47] Hongyi Wang, Kartik Sreenivasan, Shashank Rajput, Harit
+Vishwakarma, Saurabh Agarwal, Jy-yong Sohn, Kangwook
+Lee, and Dimitris Papailiopoulos. Attack of the tails: Yes,
+you really can backdoor federated learning. Advances in
+Neural Information Processing Systems , 33:16070–16084,
+2020.
+[48] EM Wright. Adaptive control processes: a guided tour. by
+richard bellman. 1961. 42s. pp. xvi+ 255.(princeton univer-
+sity press). The Mathematical Gazette , 46(356):160–161,
+1962.
+[49] Chulin Xie, Minghao Chen, Pin-Yu Chen, and Bo Li. Crfl:
+Certifiably robust federated learning against backdoor at-
+tacks. In International Conference on Machine Learning ,
+pages 11372–11382. PMLR, 2021.
+[50] Chulin Xie, Keli Huang, Pin-Yu Chen, and Bo Li. Dba: Dis-
+tributed backdoor attacks against federated learning. In In-
+ternational Conference on Learning Representations , 2019.
+[51] Xinyan Xie, Yijiang Li, Ying Gao, Chaojie Wu, Ping Gao,
+Binjie Song, Wei Wang, and Yiqin Lu. Weakly supervised
+object localization with soft guidance and channel erasing
+for auto labelling in autonomous driving systems. ISA trans-
+actions , 132:39–51, 2023.
+[52] Nanyang Ye, Kaican Li, Haoyue Bai, Runpeng Yu, Lanqing
+Hong, Fengwei Zhou, Zhenguo Li, and Jun Zhu. Ood-bench:
+Quantifying and understanding two dimensions of out-of-
+distribution generalization. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition ,
+pages 7947–7958, 2022.
+[53] Dong Yin, Yudong Chen, Ramchandran Kannan, and Peter
+Bartlett. Byzantine-robust distributed learning: Towards op-
+timal statistical rates. In International Conference on Ma-
+chine Learning , pages 5650–5659. PMLR, 2018.
+[54] Jiahui Yu, Zirui Wang, Vijay Vasudevan, Legg Yeung, Mo-
+jtaba Seyedhosseini, and Yonghui Wu. Coca: Contrastive
+captioners are image-text foundation models. arXiv preprint
+arXiv:2205.01917 , 2022.
+[55] Bo Zhao, Peng Sun, Tao Wang, and Keyu Jiang. Fedinv:
+Byzantine-robust federated learning by inversing local model
+updates. In Thirty-Sixth AAAI Conference on Artificial Intel-
+ligence , pages 9171–9179. AAAI Press, 2022.
+[56] Weiming Zhuang, Xin Gan, Yonggang Wen, Shuai Zhang,
+and Shuai Yi. Collaborative unsupervised visual represen-
+tation learning from decentralized data. In Proceedings of
+the IEEE/CVF international conference on computer vision ,
+pages 4912–4921, 2021.
+4662

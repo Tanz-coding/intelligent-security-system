@@ -1,10 +1,18 @@
 
-# Deep Leakage from Gradients (DLG) 复现实验与代码修改说明
+# 智能安全系统复现实验说明
 
-## 0.更多说明
+本目录保存了两个独立联邦学习后门复现项目：
+
+- `dlg-master/`：Deep Leakage from Gradients 复刻工程。
+- `edgecase_backdoors-master/edgecase_backdoors-master/`：MultiMetricDefense (ICCV 2023) 复现代码及实验产物。
+
+
 如需查看multi信息，请点击：[README_multi](multi/README_multi.md)
 
-本仓库基于 mit-han-lab/dlg（NeurIPS 2019）进行复现与工程化改造，面向 Windows/PowerShell 环境提供一键运行与更丰富的实验配置（数据集选择、批量样本、TV 正则、指标导出与结果保存）。
+## 0.更多说明
+
+
+此处的README是描述Deep Leakage from Gradients (DLG) 基于 mit-han-lab/dlg（NeurIPS 2019）进行复现与工程化改造，面向 Windows/PowerShell 环境提供一键运行与更丰富的实验配置（数据集选择、批量样本、TV 正则、指标导出与结果保存）。
 
 - 上游项目主页: https://github.com/mit-han-lab/dlg
 - 论文: https://arxiv.org/abs/1906.08935

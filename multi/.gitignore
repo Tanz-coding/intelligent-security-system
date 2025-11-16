@@ -53,6 +53,14 @@ desktop.ini
 *.swp
 *.swo
 
+# ---- 复现凭证（需要保留的结果） ----
+!edgecase_backdoors-master/edgecase_backdoors-master/results/*.csv
+!edgecase_backdoors-master/edgecase_backdoors-master/results/plots/
+!edgecase_backdoors-master/edgecase_backdoors-master/results/plots/*.png
+
+# ---- EdgeCase Backdoors 数据集（过大，不提交） ----
+edgecase_backdoors-master/edgecase_backdoors-master/data/
+
 # 忽略数据集和大文件
 dlg-master/data/
 dlg-master/dlg-master/data/

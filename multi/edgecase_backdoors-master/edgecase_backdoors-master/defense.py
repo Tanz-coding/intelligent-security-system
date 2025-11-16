@@ -1,3 +1,4 @@
+import math
 import torch
 from utils import *
 
@@ -115,6 +116,95 @@ class AddNoise(Defense):
         logger.info("Weak DP Defense: added noise of norm: {}".format(torch.norm(gaussian_noise)))
         
         return None
+
+
+class MultiMetricDefense(Defense):
+    """Implements Algorithm 1 from Multi-metrics adaptive defense."""
+
+    def __init__(self, retain_ratio=0.5, whitening_epsilon=1e-6, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.retain_ratio = min(max(retain_ratio, 0.0), 1.0)
+        self.whitening_epsilon = whitening_epsilon
+
+    def exec(self, client_models, global_model, num_dps, device=None, *args, **kwargs):
+        if not client_models:
+            return client_models, []
+
+        if self.retain_ratio <= 0:
+            logger.warning("Retain ratio <= 0 supplied to MultiMetricDefense; defaulting to keep a single client.")
+            keep_ratio = 1.0 / len(client_models)
+        else:
+            keep_ratio = self.retain_ratio
+
+        global_vec = vectorize_net(global_model).detach().cpu().numpy().astype(np.float64)
+        client_vecs = [vectorize_net(cm).detach().cpu().numpy().astype(np.float64) for cm in client_models]
+        metrics = self._collect_metrics(client_vecs, global_vec)
+        indicators = self._pairwise_indicator(metrics)
+        deltas = self._score(indicators)
+
+        keep_count = max(1, int(math.ceil(len(client_models) * keep_ratio)))
+        ranked_indices = np.argsort(deltas)
+        selected_indices = np.sort(ranked_indices[:keep_count])
+
+        aligned_num_dps = self._align_counts(num_dps, len(client_models))
+        selected_counts = [aligned_num_dps[idx] for idx in selected_indices]
+        total = sum(selected_counts) if sum(selected_counts) > 0 else len(selected_counts)
+        selected_freq = [cnt / total for cnt in selected_counts]
+
+        kept_models = [client_models[idx] for idx in selected_indices]
+        dropped = set(range(len(client_models))) - set(selected_indices.tolist())
+        logger.info("Multi-metric defense kept %d/%d clients; removed indices: %s", keep_count, len(client_models), sorted(dropped))
+        return kept_models, selected_freq
+
+    def _collect_metrics(self, client_vecs, global_vec):
+        g_norm = np.linalg.norm(global_vec) + 1e-12
+        metrics = []
+        for vec in client_vecs:
+            diff = vec - global_vec
+            man = np.linalg.norm(diff, ord=1)
+            eul = np.linalg.norm(diff)
+            cos = float(np.dot(global_vec, vec) / ((np.linalg.norm(vec) * g_norm) + 1e-12))
+            metrics.append([man, eul, cos])
+        return np.asarray(metrics, dtype=np.float64)
+
+    def _pairwise_indicator(self, metrics):
+        if len(metrics) == 1:
+            return np.zeros((1, metrics.shape[1]))
+        diff = np.abs(metrics[:, None, :] - metrics[None, :, :])
+        return diff.sum(axis=1)
+
+    def _score(self, indicators):
+        if len(indicators) == 1:
+            return np.zeros(1)
+        cov = np.cov(indicators, rowvar=False)
+        if cov.ndim == 0:
+            cov = np.array([[cov]])
+        # iteratively inflate diagonal if pinv still fails
+        eye = np.eye(cov.shape[0])
+        jitter = self.whitening_epsilon
+        for _ in range(5):
+            try:
+                cov_reg = cov + jitter * eye
+                cov_inv = np.linalg.pinv(cov_reg)
+                break
+            except np.linalg.LinAlgError:
+                jitter *= 10
+        else:
+            logger.warning("Multi-metric defense: covariance SVD failed even after jitter escalation; falling back to identity weighting.")
+            cov_inv = np.eye(cov.shape[0])
+        quad = np.einsum('bi,ij,bj->b', indicators, cov_inv, indicators)
+        quad = np.maximum(quad, 0.0)
+        return np.sqrt(quad)
+
+    def _align_counts(self, num_dps, target_len):
+        counts = list(num_dps)
+        if len(counts) == target_len:
+            return counts
+        logger.warning("Length mismatch between num_dps (%d) and client_models (%d); padding/truncating counts.", len(counts), target_len)
+        if len(counts) > target_len:
+            return counts[:target_len]
+        counts.extend([1 for _ in range(target_len - len(counts))])
+        return counts
 
 
 class Krum(Defense):

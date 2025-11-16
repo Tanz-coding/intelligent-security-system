@@ -93,6 +93,10 @@ if __name__ == "__main__":
                         help='attack case indicates wheather the honest nodes see the attackers poisoned data points: edge-case|normal-case|almost-edge-case')
     parser.add_argument('--stddev', type=float, default=0.158,
                         help='choose std_dev for weak-dp defense')
+    parser.add_argument('--multi-metric-frac', type=float, default=0.5,
+                        help='fraction p of clients retained by the multi-metric defense (0-1]')
+    parser.add_argument('--multi-metric-eps', type=float, default=1e-6,
+                        help='diagonal jitter added before covariance inversion in multi-metric defense')
     parser.add_argument('--selected_node_indices', type=np.array, default=None,
                         help='indices of clients in each round for fixed_pool FL')
     parser.add_argument('--selected_attackers', type=np.array, default=None,
@@ -206,6 +210,8 @@ if __name__ == "__main__":
             "prox_attack":args.prox_attack,
             "attack_case":args.attack_case,
             "stddev":args.stddev,
+            "multi_metric_frac":args.multi_metric_frac,
+            "multi_metric_eps":args.multi_metric_eps,
         }
 
         frequency_fl_trainer = FrequencyFederatedLearningTrainer(arguments=arguments)
@@ -246,6 +252,8 @@ if __name__ == "__main__":
             "prox_attack":args.prox_attack,
             "attack_case":args.attack_case,
             "stddev":args.stddev,
+                 "multi_metric_frac":args.multi_metric_frac,
+                 "multi_metric_eps":args.multi_metric_eps,
      }
 
         print ("defense method is", arguments["defense_technique"])

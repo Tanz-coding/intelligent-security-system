@@ -366,7 +366,14 @@ def load_poisoned_dataset(args):
             fraction=int(args.fraction)
 
         with open("poisoned_dataset_fraction_{}".format(fraction), "rb") as saved_data_file:
-            poisoned_dataset = torch.load(saved_data_file)
+            # Torch 2.6 defaults to weights_only=True which breaks loading pickled Dataset objects
+            poisoned_dataset = torch.load(saved_data_file, weights_only=False)
+        # torchvision 0.19+ Normalize inherits nn.Module; reassign transform to avoid missing hook attrs after unpickle
+        emnist_transform = transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))])
+        poisoned_dataset.transform = emnist_transform
+        poisoned_dataset.target_transform = None
         num_dps_poisoned_dataset = poisoned_dataset.data.shape[0]
         
         # prepare fashionMNIST dataset
@@ -403,7 +410,7 @@ def load_poisoned_dataset(args):
         if args.poison_type == 'ardis':
             # load ardis test set
             with open("./data/ARDIS/ardis_test_dataset.pt", "rb") as saved_data_file:
-                ardis_test_dataset = torch.load(saved_data_file)
+                ardis_test_dataset = torch.load(saved_data_file, weights_only=False)
 
             targetted_task_test_loader = torch.utils.data.DataLoader(ardis_test_dataset,
                  batch_size=args.test_batch_size, shuffle=False, **kwargs)
